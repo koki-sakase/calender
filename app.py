@@ -1,7 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 from streamlit_calendar import calendar
-from datetime import datetime, timedelta
+from datetime import datetime, date, time
 
 # 1. Supabaseクライアントの初期化
 @st.cache_resource
@@ -15,15 +15,12 @@ supabase = init_supabase()
 # 2. セッションステートの初期化
 if "user" not in st.session_state:
     st.session_state.user = None
-if "edit_target_id" not in st.session_state:
-    st.session_state.edit_target_id = None
 
 # 3. 認証インターフェース
 if st.session_state.user is None:
     st.subheader("ログイン")
     email = st.text_input("メールアドレス")
     password = st.text_input("パスワード", type="password")
-    
     if st.button("ログイン"):
         try:
             res = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -34,164 +31,182 @@ if st.session_state.user is None:
     st.stop()
 
 # --- ログイン済みのユーザーのみ実行 ---
-
-st.write(f"ログイン中: {st.session_state.user.email}")
-if st.button("ログアウト"):
-    supabase.auth.sign_out()
-    st.session_state.user = None
-    st.rerun()
-
+col_head1, col_head2 = st.columns([3, 1])
+with col_head1:
+    st.write(f"ログイン中: {st.session_state.user.email}")
+with col_head2:
+    if st.button("ログアウト"):
+        supabase.auth.sign_out()
+        st.session_state.user = None
+        st.rerun()
 st.divider()
 
-# --- ポップアップ（ダイアログ）機能の定義 ---
+# --- ダイアログ（ポップアップ）機能の定義 ---
+
+# A. 予定リスト表示ダイアログ
 @st.dialog("予定リスト")
-def show_schedule_list(period_days: int, db_data: list):
-    today = datetime.today().date()
-    end_date = today + timedelta(days=period_days)
-    
-    st.write(f"今日（{today}）から {period_days} 日間の予定")
-    
-    # 指定期間内の予定を抽出
+def show_schedule_list(start_d, end_d, db_data):
+    st.write(f"期間: {start_d} 〜 {end_d}")
     filtered_events = []
     for row in db_data:
-        start_date_obj = datetime.strptime(row["start_date"], "%Y-%m-%d").date()
-        if today <= start_date_obj <= end_date:
+        # ISO8601文字列から日付オブジェクトを抽出
+        row_date = datetime.fromisoformat(row["start_datetime"].replace('Z', '+00:00')).date()
+        if start_d <= row_date <= end_d:
             filtered_events.append(row)
     
-    # 抽出した予定を昇順でソートして表示
-    filtered_events.sort(key=lambda x: x["start_date"])
+    filtered_events.sort(key=lambda x: x["start_datetime"])
     
     if not filtered_events:
-        st.write("予定はありません。")
+        st.write("指定された期間内に予定はありません。")
     else:
         for ev in filtered_events:
-            period_str = f"{ev['start_date']}"
-            if ev['end_date'] and ev['end_date'] != ev['start_date']:
-                period_str += f" 〜 {ev['end_date']}"
-            st.markdown(f"- **{period_str}** : {ev['title']} ({ev['result']})")
+            s_dt = datetime.fromisoformat(ev["start_datetime"].replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
+            e_dt = datetime.fromisoformat(ev["end_datetime"].replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
+            st.markdown(f"- **{s_dt} 〜 {e_dt}** : {ev['title']} ({ev['result']})")
+
+# B. 感想入力・編集ダイアログ
+@st.dialog("詳細・感想の入力", width="large")
+def edit_reflections(event_id, current_reflections):
+    ref = current_reflections if current_reflections else {}
+    
+    with st.form("reflection_form"):
+        st.subheader("インターン内容")
+        r_datetime = st.text_input("日時", value=ref.get("datetime", ""))
+        r_work = st.text_area("どのようなワークを行ったか", value=ref.get("work", ""))
+        r_impression = st.text_area("インターンの簡単な感想（どこが自分とあっているor向いていたか）", value=ref.get("impression", ""))
+        
+        st.subheader("会社について")
+        r_strength = st.text_area("自分が感じた会社の強み(強調されていたもの)", value=ref.get("strength", ""))
+        r_candidate = st.text_area("求める人物像の具体的な内容", value=ref.get("candidate", ""))
+        r_competitor = st.text_area("競合他社", value=ref.get("competitor", ""))
+        r_future = st.text_area("今後の注力事業", value=ref.get("future", ""))
+        r_gap = st.text_area("インターン前後のイメージ", value=ref.get("gap", ""))
+        
+        st.subheader("学生について")
+        r_level = st.text_area("学生のレベル感", value=ref.get("level", ""))
+        r_excellent = st.text_area("優秀と感じた学生の特徴", value=ref.get("excellent", ""))
+        r_average = st.text_area("平均的な学生の特徴", value=ref.get("average", ""))
+        r_role = st.text_area("学生の中の自分の役割", value=ref.get("role", ""))
+        
+        st.subheader("社員について")
+        r_schedule = st.text_area("1日のスケジュール、業務内容", value=ref.get("schedule", ""))
+        r_emp_type = st.text_area("どんな社員が多いか", value=ref.get("emp_type", ""))
+        r_rewarding = st.text_area("一番つらいorやりがいを感じる仕事", value=ref.get("rewarding", ""))
+        r_stakeholder = st.text_area("業務のステークホルダー、かかわる人", value=ref.get("stakeholder", ""))
+        
+        if st.form_submit_button("感想を保存"):
+            new_reflections = {
+                "datetime": r_datetime, "work": r_work, "impression": r_impression,
+                "strength": r_strength, "candidate": r_candidate, "competitor": r_competitor,
+                "future": r_future, "gap": r_gap,
+                "level": r_level, "excellent": r_excellent, "average": r_average, "role": r_role,
+                "schedule": r_schedule, "emp_type": r_emp_type, "rewarding": r_rewarding, "stakeholder": r_stakeholder
+            }
+            supabase.table("internships").update({"reflections": new_reflections}).eq("id", event_id).execute()
+            st.success("感想を保存しました。")
+            st.rerun()
 
 # 4. データの取得
 response = supabase.table("internships").select("*").execute()
 db_data = response.data
 
-# --- リストアップ表示ボタン ---
-col_btn1, col_btn2 = st.columns(2)
-with col_btn1:
-    if st.button("1週間の予定リストを表示"):
-        show_schedule_list(7, db_data)
-with col_btn2:
-    if st.button("1ヶ月の予定リストを表示"):
-        show_schedule_list(30, db_data)
+# --- 任意の期間のリストアップ表示 ---
+st.subheader("予定のリストアップ")
+col_d1, col_d2, col_d3 = st.columns([2, 2, 1])
+with col_d1:
+    filter_start = st.date_input("開始日を選択", value=date.today(), key="filter_s")
+with col_d2:
+    filter_end = st.date_input("終了日を選択", value=date.today(), key="filter_e")
+with col_d3:
+    st.write("") # 高さ合わせ
+    st.write("")
+    if st.button("リストを表示"):
+        show_schedule_list(filter_start, filter_end, db_data)
 
-# カレンダー用データ構造の構築（主キー id を含める）
+st.divider()
+
+# カレンダー用データ構造の構築（時刻情報に対応）
 events = []
 for row in db_data:
     events.append({
-        "id": str(row["id"]), # DBの主キー
+        "id": str(row["id"]),
         "title": row["title"],
-        "start": row["start_date"],
-        "end": row["end_date"] if row["end_date"] else row["start_date"],
+        "start": row["start_datetime"],
+        "end": row["end_datetime"],
         "extendedProps": {
             "content": row["content"],
             "result": row["result"],
-            "impression": row["impression"]
+            "reflections": row["reflections"]
         }
     })
 
-# カレンダー表示
-calendar_result = calendar(events=events, options={"initialView": "dayGridMonth"})
+# カレンダー表示設定（時刻を表示できるように timeGridWeek も利用可能に設定）
+cal_options = {
+    "initialView": "dayGridMonth",
+    "headerToolbar": {
+        "left": "prev,next today",
+        "center": "title",
+        "right": "dayGridMonth,timeGridWeek,timeGridDay"
+    }
+}
+calendar_result = calendar(events=events, options=cal_options)
 
-# 5. カレンダーのクリックイベント処理（詳細表示・編集・削除）
+# 5. カレンダーのクリックイベント処理
 if "eventClick" in calendar_result and calendar_result["eventClick"]:
     clicked_event = calendar_result["eventClick"]["event"]
     props = clicked_event.get("extendedProps", {})
     event_id = clicked_event["id"]
     
-    st.subheader(f"{clicked_event['title']}")
-    st.write(f"**内容:** {props.get('content', '')}")
-    st.write(f"**合否:** {props.get('result', '')}")
-    st.write(f"**感想:** {props.get('impression', '')}")
+    st.subheader(f"📌 {clicked_event['title']}")
     
-    # 編集・削除ボタン
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("この予定を編集"):
-            st.session_state.edit_target_id = event_id
-    with col2:
+    # 時刻をフォーマットして表示
+    s_time = datetime.fromisoformat(clicked_event['start'].replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
+    e_time = datetime.fromisoformat(clicked_event['end'].replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
+    st.write(f"**日時:** {s_time} 〜 {e_time}")
+    st.write(f"**基本内容:** {props.get('content', '')}")
+    st.write(f"**合否:** {props.get('result', '')}")
+    
+    col_act1, col_act2 = st.columns(2)
+    with col_act1:
+        if st.button("感想を入力・編集する"):
+            edit_reflections(event_id, props.get("reflections", {}))
+    with col_act2:
         if st.button("この予定を削除"):
             supabase.table("internships").delete().eq("id", event_id).execute()
-            st.session_state.edit_target_id = None
-            st.rerun()
-
-    # 編集フォームの表示
-    if st.session_state.edit_target_id == event_id:
-        st.divider()
-        st.write("■ 編集モード")
-        
-        # 既存データの抽出（初期値設定用）
-        target_row = next((item for item in db_data if str(item["id"]) == event_id), None)
-        
-        if target_row:
-            with st.form("edit_event_form"):
-                edit_title = st.text_input("インターン名", value=target_row["title"])
-                edit_start = st.date_input("開始日", value=datetime.strptime(target_row["start_date"], "%Y-%m-%d").date())
-                
-                # 終了日の初期値設定
-                default_end = target_row["end_date"]
-                if default_end:
-                    default_end_val = datetime.strptime(default_end, "%Y-%m-%d").date()
-                else:
-                    default_end_val = datetime.strptime(target_row["start_date"], "%Y-%m-%d").date()
-                edit_end = st.date_input("終了日", value=default_end_val)
-                
-                edit_content = st.text_area("内容", value=target_row["content"] or "")
-                
-                # 合否セレクトボックスの初期値設定
-                options = ["未定", "合格", "不合格", "辞退"]
-                default_index = options.index(target_row["result"]) if target_row["result"] in options else 0
-                edit_result = st.selectbox("合否", options, index=default_index)
-                
-                edit_impression = st.text_area("感想", value=target_row["impression"] or "")
-                
-                if st.form_submit_button("更新を保存"):
-                    update_data = {
-                        "title": edit_title,
-                        "start_date": str(edit_start),
-                        "end_date": str(edit_end),
-                        "content": edit_content,
-                        "result": edit_result,
-                        "impression": edit_impression
-                    }
-                    supabase.table("internships").update(update_data).eq("id", event_id).execute()
-                    st.session_state.edit_target_id = None
-                    st.success("更新しました。")
-                    st.rerun()
-        if st.button("編集をキャンセル"):
-            st.session_state.edit_target_id = None
             st.rerun()
 
 st.divider()
 
-# 6. 新規予定の登録フォーム
-st.subheader("新規予定の登録")
+# 6. 新規予定の登録フォーム（時刻入力に対応）
+st.subheader("新規予定の登録（基本情報）")
 with st.form("add_event_form"):
-    new_title = st.text_input("インターン名")
-    new_start = st.date_input("開始日")
-    new_end = st.date_input("終了日")
-    new_content = st.text_area("内容")
-    new_result = st.selectbox("合否", ["未定", "合格", "不合格", "辞退"])
-    new_impression = st.text_area("感想")
+    new_title = st.text_input("インターン名 / 予定名")
     
-    if st.form_submit_button("登録"):
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        new_start_d = st.date_input("開始日")
+        new_start_t = st.time_input("開始時間", value=time(9, 0))
+    with col_t2:
+        new_end_d = st.date_input("終了日")
+        new_end_t = st.time_input("終了時間", value=time(18, 0))
+        
+    new_content = st.text_area("内容 (前泊・移動などのメモ)")
+    new_result = st.selectbox("合否", ["未定", "合格", "不合格", "辞退"])
+    
+    if st.form_submit_button("予定を登録"):
+        # 日付と時間を結合してISOフォーマットに変換
+        start_dt = datetime.combine(new_start_d, new_start_t).isoformat()
+        end_dt = datetime.combine(new_end_d, new_end_t).isoformat()
+        
         insert_data = {
             "user_id": st.session_state.user.id,
             "title": new_title,
-            "start_date": str(new_start),
-            "end_date": str(new_end),
+            "start_datetime": start_dt,
+            "end_datetime": end_dt,
             "content": new_content,
             "result": new_result,
-            "impression": new_impression
+            "reflections": {} # 感想は初期状態では空のJSON
         }
         supabase.table("internships").insert(insert_data).execute()
-        st.success("登録が完了しました。")
+        st.success("予定を登録しました。感想はカレンダーから予定をクリックして後から記入できます。")
         st.rerun()
