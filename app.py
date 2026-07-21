@@ -43,14 +43,12 @@ st.divider()
 
 # --- ダイアログ（ポップアップ）機能の定義 ---
 
-# A. 予定リスト表示ダイアログ
 @st.dialog("予定リスト")
 def show_schedule_list(start_d, end_d, db_data):
     st.write(f"期間: {start_d} 〜 {end_d}")
     filtered_events = []
     for row in db_data:
-        # ISO8601文字列から日付オブジェクトを抽出
-        row_date = datetime.fromisoformat(row["start_datetime"].replace('Z', '+00:00')).date()
+        row_date = datetime.fromisoformat(row["start_datetime"]).date()
         if start_d <= row_date <= end_d:
             filtered_events.append(row)
     
@@ -60,11 +58,10 @@ def show_schedule_list(start_d, end_d, db_data):
         st.write("指定された期間内に予定はありません。")
     else:
         for ev in filtered_events:
-            s_dt = datetime.fromisoformat(ev["start_datetime"].replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
-            e_dt = datetime.fromisoformat(ev["end_datetime"].replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
+            s_dt = datetime.fromisoformat(ev["start_datetime"]).strftime('%Y-%m-%d %H:%M')
+            e_dt = datetime.fromisoformat(ev["end_datetime"]).strftime('%Y-%m-%d %H:%M')
             st.markdown(f"- **{s_dt} 〜 {e_dt}** : {ev['title']} ({ev['result']})")
 
-# B. 感想入力・編集ダイアログ
 @st.dialog("詳細・感想の入力", width="large")
 def edit_reflections(event_id, current_reflections):
     ref = current_reflections if current_reflections else {}
@@ -118,14 +115,14 @@ with col_d1:
 with col_d2:
     filter_end = st.date_input("終了日を選択", value=date.today(), key="filter_e")
 with col_d3:
-    st.write("") # 高さ合わせ
+    st.write("")
     st.write("")
     if st.button("リストを表示"):
         show_schedule_list(filter_start, filter_end, db_data)
 
 st.divider()
 
-# カレンダー用データ構造の構築（時刻情報に対応）
+# カレンダー用データ構造の構築
 events = []
 for row in db_data:
     events.append({
@@ -140,13 +137,18 @@ for row in db_data:
         }
     })
 
-# カレンダー表示設定（時刻を表示できるように timeGridWeek も利用可能に設定）
+# カレンダー表示設定（24時間表記に対応）
 cal_options = {
     "initialView": "dayGridMonth",
     "headerToolbar": {
         "left": "prev,next today",
         "center": "title",
         "right": "dayGridMonth,timeGridWeek,timeGridDay"
+    },
+    "slotLabelFormat": {
+        "hour": "2-digit",
+        "minute": "2-digit",
+        "hour12": False
     }
 }
 calendar_result = calendar(events=events, options=cal_options)
@@ -159,9 +161,8 @@ if "eventClick" in calendar_result and calendar_result["eventClick"]:
     
     st.subheader(f"📌 {clicked_event['title']}")
     
-    # 時刻をフォーマットして表示
-    s_time = datetime.fromisoformat(clicked_event['start'].replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
-    e_time = datetime.fromisoformat(clicked_event['end'].replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
+    s_time = datetime.fromisoformat(clicked_event['start']).strftime('%Y-%m-%d %H:%M')
+    e_time = datetime.fromisoformat(clicked_event['end']).strftime('%Y-%m-%d %H:%M')
     st.write(f"**日時:** {s_time} 〜 {e_time}")
     st.write(f"**基本内容:** {props.get('content', '')}")
     st.write(f"**合否:** {props.get('result', '')}")
@@ -177,7 +178,7 @@ if "eventClick" in calendar_result and calendar_result["eventClick"]:
 
 st.divider()
 
-# 6. 新規予定の登録フォーム（時刻入力に対応）
+# 6. 新規予定の登録フォーム
 st.subheader("新規予定の登録（基本情報）")
 with st.form("add_event_form"):
     new_title = st.text_input("インターン名 / 予定名")
@@ -194,7 +195,6 @@ with st.form("add_event_form"):
     new_result = st.selectbox("合否", ["未定", "合格", "不合格", "辞退"])
     
     if st.form_submit_button("予定を登録"):
-        # 日付と時間を結合してISOフォーマットに変換
         start_dt = datetime.combine(new_start_d, new_start_t).isoformat()
         end_dt = datetime.combine(new_end_d, new_end_t).isoformat()
         
@@ -205,8 +205,8 @@ with st.form("add_event_form"):
             "end_datetime": end_dt,
             "content": new_content,
             "result": new_result,
-            "reflections": {} # 感想は初期状態では空のJSON
+            "reflections": {}
         }
         supabase.table("internships").insert(insert_data).execute()
-        st.success("予定を登録しました。感想はカレンダーから予定をクリックして後から記入できます。")
+        st.success("予定を登録しました。")
         st.rerun()
