@@ -154,9 +154,13 @@ for row in db_data:
         }
     })
 
-# カレンダー表示設定（24時間表記に対応）
+# --- カレンダー表示日を移動するUIの追加 ---
+jump_date = st.date_input("カレンダーの表示日を移動", value=date.today())
+
+# カレンダー表示設定（24時間表記および表示日移動に対応）
 cal_options = {
     "initialView": "dayGridMonth",
+    "initialDate": jump_date.isoformat(), # 指定した日付をカレンダーの初期表示日とする
     "headerToolbar": {
         "left": "prev,next today",
         "center": "title",
