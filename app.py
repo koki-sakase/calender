@@ -122,14 +122,31 @@ with col_d3:
 
 st.divider()
 
+# --- カスタムCSSの注入（取り消し線とグレーアウトの設定） ---
+st.markdown("""
+<style>
+/* 不合格・辞退の予定に対するスタイル */
+.cancelled-event .fc-event-title,
+.cancelled-event .fc-event-time,
+.cancelled-event .fc-event-main {
+    text-decoration: line-through;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # カレンダー用データ構造の構築
 events = []
 for row in db_data:
+    is_cancelled = row["result"] in ["不合格", "辞退"]
+    
     events.append({
         "id": str(row["id"]),
         "title": row["title"],
         "start": row["start_datetime"],
         "end": row["end_datetime"],
+        "className": ["cancelled-event"] if is_cancelled else [],
+        "backgroundColor": "#a9a9a9" if is_cancelled else "#3788d8",
+        "borderColor": "#a9a9a9" if is_cancelled else "#3788d8",
         "extendedProps": {
             "content": row["content"],
             "result": row["result"],
@@ -149,6 +166,11 @@ cal_options = {
         "hour": "2-digit",
         "minute": "2-digit",
         "hour12": False
+    },
+    "eventTimeFormat": {
+        "hour": "2-digit",
+        "minute": "2-digit",
+        "hour12": False
     }
 }
 calendar_result = calendar(events=events, options=cal_options)
@@ -159,7 +181,7 @@ if "eventClick" in calendar_result and calendar_result["eventClick"]:
     props = clicked_event.get("extendedProps", {})
     event_id = clicked_event["id"]
     
-    st.subheader(f"📌 {clicked_event['title']}")
+    st.subheader(f"{clicked_event['title']}")
     
     s_time = datetime.fromisoformat(clicked_event['start']).strftime('%Y-%m-%d %H:%M')
     e_time = datetime.fromisoformat(clicked_event['end']).strftime('%Y-%m-%d %H:%M')
